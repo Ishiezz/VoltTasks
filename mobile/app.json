@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "VoltTasks",
+    "slug": "volttasks",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0A0A0F"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.volttasks.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0A0A0F"
+      },
+      "package": "com.volttasks.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-secure-store",
+        { "faceIDPermission": "Allow VoltTasks to access Face ID for secure login" }
+      ]
+    ],
+    "scheme": "volttasks",
+    "extra": {
+      "router": { "origin": false },
+      "eas": { "projectId": "your-eas-project-id" }
+    }
+  }
+}
