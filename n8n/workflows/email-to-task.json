@@ -1,0 +1,142 @@
+{
+  "name": "Email → Task (with Groq LLM)",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": { "item": [{ "mode": "everyMinute", "value": 2 }] },
+        "mailbox": "INBOX",
+        "options": { "allowUnauthorizedCerts": true, "downloadAttachments": false }
+      },
+      "id": "imap-trigger",
+      "name": "Gmail IMAP Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "credentials": { "imap": { "id": "GMAIL_IMAP_CRED_ID", "name": "Gmail IMAP" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const email = $input.first().json;\nreturn [{\n  json: {\n    subject: email.subject || 'No subject',\n    body: email.textPlain || email.text || '',\n    sender_email: email.from?.value?.[0]?.address || email.from || ''\n  }\n}];"
+      },
+      "id": "extract-fields",
+      "name": "Extract Email Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama-3.1-8b-instant"
+            },
+            {
+              "name": "messages",
+              "value": "=[{\"role\":\"system\",\"content\":\"You are a task extraction assistant. Extract task details from emails and respond with ONLY valid JSON, no markdown, no explanation.\\n\\nRules:\\n- title: concise action item (max 200 chars)\\n- description: optional context (max 500 chars)\\n- priority: infer from urgency. 'urgent'/'ASAP'/'critical' → 'high'. 'low priority'/'when you can' → 'low'. Default → 'medium'\\n- due_date: ISO 8601 if mentioned, null otherwise\\n\\nResponse format: {\\\"title\\\":\\\"...\\\",\\\"description\\\":\\\"...\\\",\\\"priority\\\":\\\"low|medium|high\\\",\\\"due_date\\\":\\\"ISO8601 or null\\\"}\"},{\"role\":\"user\",\"content\":\"Subject: {{ $json.subject }}\\n\\nBody: {{ $json.body }}\"}]"
+            },
+            {
+              "name": "max_tokens",
+              "value": "=300"
+            },
+            {
+              "name": "temperature",
+              "value": "=0.1"
+            }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "id": "groq-parse",
+      "name": "Groq LLM Parse",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300],
+      "credentials": { "httpHeaderAuth": { "id": "GROQ_API_KEY_CRED_ID", "name": "Groq API Key" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const groqResponse = $input.first().json;\nconst senderEmail = $('Extract Email Fields').first().json.sender_email;\nconst rawContent = groqResponse.choices?.[0]?.message?.content || '{}';\n\nlet parsed = {};\ntry {\n  const cleaned = rawContent.replace(/```json?\\n?/g, '').replace(/```/g, '').trim();\n  parsed = JSON.parse(cleaned);\n} catch(e) {\n  // Fallback to raw email fields\n  const subj = $('Extract Email Fields').first().json.subject;\n  const body = $('Extract Email Fields').first().json.body;\n  parsed = { title: subj.substring(0, 200), description: body.substring(0, 500), priority: 'medium', due_date: null };\n}\n\nreturn [{ json: { ...parsed, sender_email: senderEmail } }];"
+      },
+      "id": "parse-groq-response",
+      "name": "Parse & Validate LLM Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_URL }}/api/tasks/from-email",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-api-key", "value": "={{ $env.N8N_API_KEY }}" }]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "create-task",
+      "name": "Create Task in Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const task = $input.first().json?.data;\nconst parsed = $('Parse & Validate LLM Response').first().json;\n\nconst priorityEmoji = { high: '🔴', medium: '🟡', low: '🟢' }[parsed.priority] || '🟡';\n\nreturn [{ json: { taskTitle: task?.title || parsed.title, priority: parsed.priority, priorityEmoji, taskId: task?.id, dueDate: parsed.due_date } }];"
+      },
+      "id": "format-slack-msg",
+      "name": "Format Slack Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "webhookUri": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "text": "📧 *New Task from Email*",
+        "blocksUi": {
+          "blocksValues": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "{{ $json.priorityEmoji }} *{{ $json.taskTitle }}*\nPriority: `{{ $json.priority }}`{{ $json.dueDate ? '\\nDue: ' + $json.dueDate : '' }}"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [{ "type": "mrkdwn", "text": "Created automatically via Email → Task automation ⚡" }]
+            }
+          ]
+        }
+      },
+      "id": "slack-notify",
+      "name": "Slack Notification",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": { "slackApi": { "id": "SLACK_CRED_ID", "name": "Slack Account" } }
+    }
+  ],
+  "connections": {
+    "Gmail IMAP Trigger": { "main": [[{ "node": "Extract Email Fields", "type": "main", "index": 0 }]] },
+    "Extract Email Fields": { "main": [[{ "node": "Groq LLM Parse", "type": "main", "index": 0 }]] },
+    "Groq LLM Parse": { "main": [[{ "node": "Parse & Validate LLM Response", "type": "main", "index": 0 }]] },
+    "Parse & Validate LLM Response": { "main": [[{ "node": "Create Task in Backend", "type": "main", "index": 0 }]] },
+    "Create Task in Backend": { "main": [[{ "node": "Format Slack Message", "type": "main", "index": 0 }]] },
+    "Format Slack Message": { "main": [[{ "node": "Slack Notification", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Watches Gmail inbox, parses email with Groq Llama LLM to extract task title/priority/due-date, creates task in backend, notifies Slack."
+  }
+}

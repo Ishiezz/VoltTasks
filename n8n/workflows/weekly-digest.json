@@ -1,0 +1,68 @@
+{
+  "name": "Weekly Digest Email",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 8 * * 1" }] }
+      },
+      "id": "weekly-cron",
+      "name": "Cron: Monday 8AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/tasks/summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-api-key", "value": "={{ $env.N8N_API_KEY }}" }]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "period", "value": "last_week" }]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "fetch-summary",
+      "name": "Fetch Weekly Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst summaries = response.data || [];\n\nconst now = new Date();\nconst weekStart = new Date(now);\nweekStart.setDate(now.getDate() - 7);\n\nconst dateRange = `${weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;\n\n// Aggregate all user stats\nlet totalCreated = 0, totalCompleted = 0, totalOverdue = 0, totalPending = 0;\nfor (const s of summaries) {\n  totalCreated += s.created_this_week || 0;\n  totalCompleted += s.completed_this_week || 0;\n  totalOverdue += s.overdue_tasks || 0;\n  totalPending += s.pending_tasks || 0;\n}\n\nconst rate = totalCreated > 0 ? Math.round((totalCompleted / totalCreated) * 100) : 0;\nconst rateBar = '█'.repeat(Math.floor(rate / 10)) + '░'.repeat(10 - Math.floor(rate / 10));\n\nconst html = `<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<style>\n  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; background: #0A0A0F; color: #F5F5F7; margin: 0; padding: 0; }\n  .container { max-width: 600px; margin: 0 auto; padding: 32px 24px; }\n  .header { background: linear-gradient(135deg, #1A0533, #0F0F1A); border-radius: 16px; padding: 32px; margin-bottom: 24px; border: 1px solid #2A2A35; }\n  .logo { font-size: 24px; font-weight: 800; color: #F5F5F7; letter-spacing: -0.5px; margin-bottom: 4px; }\n  .period { font-size: 13px; color: #8E8E9A; margin-top: 8px; }\n  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 24px 0; }\n  .stat { background: #141419; border: 1px solid #2A2A35; border-radius: 12px; padding: 20px; text-align: center; }\n  .stat-number { font-size: 32px; font-weight: 700; letter-spacing: -1px; }\n  .stat-label { font-size: 11px; color: #8E8E9A; text-transform: uppercase; letter-spacing: 0.8px; margin-top: 4px; font-weight: 500; }\n  .rate-bar { font-family: monospace; color: #8B5CF6; font-size: 14px; letter-spacing: 2px; }\n  .section-title { font-size: 11px; color: #55555F; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; margin: 24px 0 12px; }\n  .footer { text-align: center; font-size: 12px; color: #55555F; margin-top: 32px; padding-top: 24px; border-top: 1px solid #1E1E28; }\n  a { color: #8B5CF6; text-decoration: none; }\n  .cta { display: inline-block; background: linear-gradient(90deg, #8B5CF6, #06B6D4); color: #fff; font-weight: 600; padding: 14px 28px; border-radius: 999px; text-decoration: none; margin-top: 16px; font-size: 14px; }\n</style>\n</head>\n<body>\n<div class=\"container\">\n  <div class=\"header\">\n    <div class=\"logo\">⚡ Flux Tasks</div>\n    <div style=\"font-size:22px;font-weight:700;margin-top:12px;\">Your Weekly Digest</div>\n    <div class=\"period\">${dateRange}</div>\n  </div>\n\n  <div class=\"section-title\">This week at a glance</div>\n  <div class=\"stat-grid\">\n    <div class=\"stat\"><div class=\"stat-number\" style=\"color:#06B6D4\">${totalCreated}</div><div class=\"stat-label\">Tasks Created</div></div>\n    <div class=\"stat\"><div class=\"stat-number\" style=\"color:#10B981\">${totalCompleted}</div><div class=\"stat-label\">Completed</div></div>\n    <div class=\"stat\"><div class=\"stat-number\" style=\"color:#EF4444\">${totalOverdue}</div><div class=\"stat-label\">Overdue</div></div>\n    <div class=\"stat\"><div class=\"stat-number\" style=\"color:#8E8E9A\">${totalPending}</div><div class=\"stat-label\">Still Pending</div></div>\n  </div>\n\n  <div class=\"section-title\">Completion Rate</div>\n  <div style=\"background:#141419;border:1px solid #2A2A35;border-radius:12px;padding:20px;\">\n    <div style=\"font-size:36px;font-weight:700;color:#8B5CF6;margin-bottom:8px;\">${rate}%</div>\n    <div class=\"rate-bar\">${rateBar}</div>\n    <div style=\"font-size:12px;color:#55555F;margin-top:8px;\">${totalCompleted} of ${totalCreated} tasks completed this week</div>\n  </div>\n\n  <div style=\"text-align:center;margin-top:24px;\">\n    <a href=\"#\" class=\"cta\">Open Flux Tasks →</a>\n  </div>\n\n  <div class=\"footer\">\n    <p>Flux Tasks · BuildableLabs Assignment</p>\n    <p>Automated by n8n Cloud ⚡</p>\n  </div>\n</div>\n</body>\n</html>`;\n\nreturn [{ json: { html, subject: `📋 Weekly Digest · ${dateRange}`, dateRange, totalCreated, totalCompleted, rate } }];"
+      },
+      "id": "build-email",
+      "name": "Build HTML Digest Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.GMAIL_FROM }}",
+        "toEmail": "={{ $env.DIGEST_EMAIL_TO }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}"
+      },
+      "id": "send-email",
+      "name": "Send Digest via Gmail SMTP",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "credentials": { "smtp": { "id": "GMAIL_SMTP_CRED_ID", "name": "Gmail SMTP" } }
+    }
+  ],
+  "connections": {
+    "Cron: Monday 8AM": { "main": [[{ "node": "Fetch Weekly Summary", "type": "main", "index": 0 }]] },
+    "Fetch Weekly Summary": { "main": [[{ "node": "Build HTML Digest Email", "type": "main", "index": 0 }]] },
+    "Build HTML Digest Email": { "main": [[{ "node": "Send Digest via Gmail SMTP", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Every Monday at 8AM: fetches weekly task stats, builds a premium HTML digest email, and sends via Gmail SMTP."
+  }
+}

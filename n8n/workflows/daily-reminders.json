@@ -1,0 +1,110 @@
+{
+  "name": "Daily Task Reminders (Slack)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "cronExpression", "expression": "0 9 * * 1-5" }] }
+      },
+      "id": "cron-trigger",
+      "name": "Cron: 9AM Mon-Fri",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.BACKEND_URL }}/api/tasks/summary",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [{ "name": "x-api-key", "value": "={{ $env.N8N_API_KEY }}" }]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "filter", "value": "due_today" }
+          ]
+        },
+        "options": { "timeout": 10000 }
+      },
+      "id": "fetch-tasks",
+      "name": "Fetch Today's Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst summaries = response.data || [];\n\nconst allDueTodayTasks = [];\nlet totalOverdue = 0;\nlet totalPending = 0;\n\nfor (const summary of summaries) {\n  if (summary.due_today_tasks) {\n    allDueTodayTasks.push(...summary.due_today_tasks);\n  }\n  totalOverdue += summary.overdue_tasks || 0;\n  totalPending += summary.pending_tasks || 0;\n}\n\nif (allDueTodayTasks.length === 0 && totalOverdue === 0) {\n  return [{ json: { shouldSend: false } }];\n}\n\nconst priorityEmoji = { high: '🔴', medium: '🟡', low: '🟢' };\nconst taskLines = allDueTodayTasks\n  .map(t => `${priorityEmoji[t.priority] || '⚪'} *${t.title}*`)\n  .join('\\n');\n\nconst today = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });\n\nreturn [{ json: {\n  shouldSend: true,\n  taskCount: allDueTodayTasks.length,\n  overdue: totalOverdue,\n  pending: totalPending,\n  taskLines,\n  today\n} }];"
+      },
+      "id": "process-tasks",
+      "name": "Process Task Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.shouldSend }}", "value2": true }]
+        }
+      },
+      "id": "check-has-tasks",
+      "name": "Has Tasks?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "webhookUri": "={{ $env.SLACK_WEBHOOK_URL }}",
+        "text": "📋 Daily Task Reminder",
+        "blocksUi": {
+          "blocksValues": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "📋 Tasks Due Today · {{ $json.today }}" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "You have *{{ $json.taskCount }} task{{ $json.taskCount !== 1 ? 's' : '' }}* due today:\n\n{{ $json.taskLines }}"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "📊 {{ $json.pending }} pending · {{ $json.overdue }} overdue · Stay focused! ⚡"
+                }
+              ]
+            },
+            { "type": "divider" }
+          ]
+        }
+      },
+      "id": "slack-reminder",
+      "name": "Send Slack Reminder",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2,
+      "position": [1120, 200],
+      "credentials": { "slackApi": { "id": "SLACK_CRED_ID", "name": "Slack Account" } }
+    }
+  ],
+  "connections": {
+    "Cron: 9AM Mon-Fri": { "main": [[{ "node": "Fetch Today's Tasks", "type": "main", "index": 0 }]] },
+    "Fetch Today's Tasks": { "main": [[{ "node": "Process Task Data", "type": "main", "index": 0 }]] },
+    "Process Task Data": { "main": [[{ "node": "Has Tasks?", "type": "main", "index": 0 }]] },
+    "Has Tasks?": {
+      "main": [
+        [{ "node": "Send Slack Reminder", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "meta": {
+    "description": "Runs every weekday at 9AM. Fetches tasks due today from backend, formats a Slack Block Kit message, and posts to channel. Skips if no tasks are due."
+  }
+}
