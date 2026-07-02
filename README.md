@@ -1,4 +1,4 @@
-# ⚡ Flux Tasks — BuildableLabs Generalist Engineer Assignment
+# ⚡ VoltTasks — BuildableLabs Generalist Engineer Assignment
 
 > A production-quality cross-platform task system built with React Native, Node.js/Express, Supabase, and n8n automation.
 
@@ -66,8 +66,8 @@ buildable-task-system/
 ### 1. Clone & Setup
 
 ```bash
-git clone <repo-url>
-cd buildable-task-system
+git clone https://github.com/Ishiezz/VoltTasks.git
+cd volttasks
 ```
 
 ### 2. Backend Setup
